@@ -1,4 +1,4 @@
-const User = require('../models/User'); 
+const User = require('../models/User'); // ✅ AJOUTER CETTE LIGNE
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
@@ -28,7 +28,7 @@ exports.login = async (req, res) => {
     if (!valid) return res.status(401).json({ message: "Mot de passe incorrect" });
 
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "7d" });
-    res.json({ token, userId: user._id });
+    res.json({ token, userId: user._id, username: user.username }); // ✅ AJOUT username
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
