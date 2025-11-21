@@ -1,22 +1,36 @@
 class Contact {
-  final String id;
+  final int? id;
   final String nom;
   final String numero;
+  final int? userId;
 
-  Contact({required this.id, required this.nom, required this.numero});
+  Contact({
+    this.id,
+    required this.nom,
+    required this.numero,
+    this.userId,
+  });
 
-  factory Contact.fromJson(Map<String, dynamic> json) {
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'nom': nom,
+      'numero': numero,
+      'user_id': userId,
+    };
+  }
+
+  factory Contact.fromMap(Map<String, dynamic> map) {
     return Contact(
-      id: json['_id'] ?? json['id'] ?? '',
-      nom: json['nom'] ?? '',
-      numero: json['numero'] ?? '',
+      id: map['id'],
+      nom: map['nom'],
+      numero: map['numero'],
+      userId: map['user_id'],
     );
   }
 
-  Map<String, dynamic> toJson() {
-    return {
-      'nom': nom,
-      'numero': numero,
-    };
+  @override
+  String toString() {
+    return 'Contact{id: $id, nom: $nom, numero: $numero, userId: $userId}';
   }
 }
