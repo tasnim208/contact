@@ -1,5 +1,5 @@
 name: contact_front
-description: Application Flutter pour gérer les contacts
+description: Application Flutter pour gérer les contacts avec reconnaissance vocale et photos
 publish_to: "none"
 version: 1.0.0+1
 
@@ -12,7 +12,11 @@ dependencies:
   sqflite: ^2.2.0+1
   path: ^1.8.2
   shared_preferences: ^2.1.1
-
+  image_picker: ^1.0.4
+  permission_handler: ^11.0.1
+  speech_to_text: ^7.3.0  # VERSION CORRIGÉE
+  camera: ^0.10.5
+  path_provider: ^2.1.1
 
 dev_dependencies:
   flutter_test:
@@ -21,3 +25,4 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # SUPPRIMEZ la section assets complètement

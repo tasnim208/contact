@@ -1,5 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import '../database/database_helper.dart';
+import '../models/contact.dart';
+import '../utils/constants.dart';
 
 class ContactService {
   final DatabaseHelper _dbHelper = DatabaseHelper();
@@ -40,107 +42,104 @@ class ContactService {
 
   Future<int?> getCurrentUserId() async {
     final prefs = await _prefs;
-    final userId = prefs.getInt('current_user_id');
-    print('👤 ID utilisateur actuel: $userId');
-    return userId;
+    return prefs.getInt('current_user_id');
   }
 
   Future<void> _saveUserId(int userId) async {
     final prefs = await _prefs;
     await prefs.setInt('current_user_id', userId);
-    print('💾 ID utilisateur sauvegardé: $userId');
   }
 
   // === MÉTHODES CONTACTS ===
-  Future<int> addContact(String nom, String numero) async {
-    print('➕ Tentative d\'ajout contact: $nom');
-
+  Future<int> addContact(Contact contact) async {
     final userId = await getCurrentUserId();
-    if (userId == null) {
-      throw Exception('Utilisateur non connecté');
-    }
+    if (userId == null) throw Exception('Utilisateur non connecté');
 
-    try {
-      final result = await _dbHelper.addContact(nom, numero, userId);
-      print('✅ Contact ajouté avec ID: $result');
-      return result;
-    } catch (e) {
-      print('❌ Erreur lors de l\'ajout: $e');
-      rethrow;
-    }
+    final result = await _dbHelper.addContact(contact.copyWith(userId: userId));
+    return result;
   }
 
-  Future<List<Map<String, dynamic>>> getContacts() async {
-    print('📋 Récupération des contacts');
-
+  Future<List<Contact>> getContacts() async {
     final userId = await getCurrentUserId();
-    if (userId == null) {
-      throw Exception('Utilisateur non connecté');
-    }
+    if (userId == null) throw Exception('Utilisateur non connecté');
 
-    try {
-      final contacts = await _dbHelper.getContacts(userId);
-      print('✅ ${contacts.length} contacts récupérés');
-      return contacts;
-    } catch (e) {
-      print('❌ Erreur lors de la récupération: $e');
-      rethrow;
-    }
+    final contacts = await _dbHelper.getContacts(userId);
+    return contacts;
   }
 
-  Future<List<Map<String, dynamic>>> searchContacts(String query) async {
+  Future<List<Contact>> searchContacts(String query) async {
     final userId = await getCurrentUserId();
-    if (userId == null) {
-      throw Exception('Utilisateur non connecté');
-    }
+    if (userId == null) throw Exception('Utilisateur non connecté');
 
     return await _dbHelper.searchContacts(query, userId);
   }
 
-  Future<int> updateContact(int id, String nom, String numero) async {
-    print('✏️ Modification contact ID: $id');
-
-    try {
-      final result = await _dbHelper.updateContact(id, nom, numero);
-      print('✅ Contact modifié, lignes affectées: $result');
-      return result;
-    } catch (e) {
-      print('❌ Erreur lors de la modification: $e');
-      rethrow;
-    }
+  Future<int> updateContact(Contact contact) async {
+    return await _dbHelper.updateContact(contact);
   }
 
   Future<int> deleteContact(int id) async {
-    print('🗑️ Suppression contact ID: $id');
+    return await _dbHelper.deleteContact(id);
+  }
 
-    try {
-      final result = await _dbHelper.deleteContact(id);
+  // === MÉTHODES DOUBLONS ===
+  Future<List<Contact>> findDuplicateContacts() async {
+    final contacts = await getContacts();
+    final Map<String, List<Contact>> numeroGroups = {};
 
-      if (result > 0) {
-        print('🎉🎉🎉 SUPPRESSION RÉUSSIE 🎉🎉🎉');
+    // Grouper par numéro
+    for (var contact in contacts) {
+      final normalizedNumero = _normalizePhoneNumber(contact.numero);
+      if (!numeroGroups.containsKey(normalizedNumero)) {
+        numeroGroups[normalizedNumero] = [];
+      }
+      numeroGroups[normalizedNumero]!.add(contact);
+    }
+
+    // Retourner seulement les groupes avec doublons
+    final duplicates = <Contact>[];
+    for (var group in numeroGroups.values) {
+      if (group.length > 1) {
+        duplicates.addAll(group);
+      }
+    }
+
+    return duplicates;
+  }
+
+  Future<void> mergeDuplicateContacts(List<Contact> duplicates) async {
+    final Map<String, Contact> mergedContacts = {};
+
+    for (var contact in duplicates) {
+      final normalizedNumero = _normalizePhoneNumber(contact.numero);
+      
+      if (!mergedContacts.containsKey(normalizedNumero)) {
+        // Garder le premier contact avec photo ou le plus récent
+        mergedContacts[normalizedNumero] = contact;
       } else {
-        print('⚠️ Aucun contact trouvé avec ID: $id');
+        final existing = mergedContacts[normalizedNumero]!;
+        
+        // Préférer le contact avec photo
+        if (existing.imagePath == null && contact.imagePath != null) {
+          mergedContacts[normalizedNumero] = contact;
+        }
+        
+        // Supprimer le doublon
+        await deleteContact(contact.id!);
       }
+    }
 
-      return result;
-
-    } catch (e) {
-      print('❌❌❌ ERREUR CRITIQUE LORS DE LA SUPPRESSION: $e');
-
-      // RÉINITIALISER AUTOMATIQUEMENT EN CAS D'ERREUR READ-ONLY
-      if (e.toString().contains('read-only') || e.toString().contains('réinitialisée')) {
-        print('🔄🔄🔄 RÉINITIALISATION AUTOMATIQUE 🔄🔄🔄');
-        await _dbHelper.forceRecreateDatabase();
-        throw Exception('Base de données réinitialisée. Veuillez réessayer l\'opération.');
-      }
-
-      rethrow;
+    // Mettre à jour les contacts conservés
+    for (var contact in mergedContacts.values) {
+      await updateContact(contact);
     }
   }
 
-  // MÉTHODE POUR FORCER LA RÉINITIALISATION
+  String _normalizePhoneNumber(String numero) {
+    return numero.replaceAll(RegExp(r'[^\d+]'), '');
+  }
+
   Future<void> forceResetDatabase() async {
-    print('🔄 Réinitialisation forcée demandée...');
     await _dbHelper.forceRecreateDatabase();
   }
 }

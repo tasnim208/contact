@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
 import '../services/contact_service.dart';
+import '../services/image_service.dart';
 import '../models/contact.dart';
-
+import '../utils/constants.dart';
 class EditContactScreen extends StatefulWidget {
   final Contact contact;
   final VoidCallback refresh;
 
-  EditContactScreen({required this.contact, required this.refresh});
+  const EditContactScreen({
+    Key? key,
+    required this.contact,
+    required this.refresh,
+  }) : super(key: key);
 
   @override
   State<EditContactScreen> createState() => _EditContactScreenState();
@@ -14,24 +19,26 @@ class EditContactScreen extends StatefulWidget {
 
 class _EditContactScreenState extends State<EditContactScreen> {
   final ContactService _contactService = ContactService();
+  final ImageService _imageService = ImageService();
   final _nomController = TextEditingController();
   final _numeroController = TextEditingController();
   bool _isLoading = false;
+  String? _imagePath;
 
   @override
   void initState() {
     super.initState();
     _nomController.text = widget.contact.nom;
     _numeroController.text = widget.contact.numero;
+    _imagePath = widget.contact.imagePath;
   }
 
-  void updateContact() async {
+  Future<void> updateContact() async {
     if (_nomController.text.isEmpty || _numeroController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Veuillez remplir tous les champs'),
-          backgroundColor: Color(0xFF0066CC),
-          behavior: SnackBarBehavior.floating,
+          backgroundColor: Color(AppConstants.primaryColor),
         ),
       );
       return;
@@ -40,12 +47,13 @@ class _EditContactScreenState extends State<EditContactScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // CORRECTION: updateContact() retourne int, pas bool
-      final rowsAffected = await _contactService.updateContact(
-        widget.contact.id!,
-        _nomController.text,
-        _numeroController.text,
+      final updatedContact = widget.contact.copyWith(
+        nom: _nomController.text,
+        numero: _numeroController.text,
+        imagePath: _imagePath,
       );
+
+      final rowsAffected = await _contactService.updateContact(updatedContact);
 
       if (rowsAffected > 0) {
         widget.refresh();
@@ -54,15 +62,6 @@ class _EditContactScreenState extends State<EditContactScreen> {
           SnackBar(
             content: Text('Contact modifié avec succès'),
             backgroundColor: Colors.green,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erreur lors de la modification'),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
           ),
         );
       }
@@ -71,7 +70,6 @@ class _EditContactScreenState extends State<EditContactScreen> {
         SnackBar(
           content: Text('Erreur lors de la modification: $e'),
           backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
         ),
       );
     } finally {
@@ -79,35 +77,26 @@ class _EditContactScreenState extends State<EditContactScreen> {
     }
   }
 
-  void deleteContact() async {
+  Future<void> deleteContact() async {
     final confirm = await showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: Row(
           children: [
-            Icon(Icons.warning_amber_rounded, color: Color(0xFF0066CC)),
+            Icon(Icons.warning, color: Color(AppConstants.primaryColor)),
             SizedBox(width: 8),
-            Text(
-              'Confirmer la suppression',
-              style: TextStyle(color: Color(0xFF003366)),
-            ),
+            Text('Confirmer la suppression'),
           ],
         ),
-        content: Text('Êtes-vous sûr de vouloir supprimer le contact "${widget.contact.nom}" ? Cette action est irréversible.'),
+        content: Text('Êtes-vous sûr de vouloir supprimer le contact "${widget.contact.nom}" ?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: Text(
-              'Annuler',
-              style: TextStyle(color: Color(0xFF6699CC)),
-            ),
+            child: Text('Annuler'),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             child: Text('Supprimer'),
           ),
         ],
@@ -118,25 +107,20 @@ class _EditContactScreenState extends State<EditContactScreen> {
       setState(() => _isLoading = true);
 
       try {
-        // CORRECTION: deleteContact() retourne int, pas bool
         final rowsAffected = await _contactService.deleteContact(widget.contact.id!);
 
         if (rowsAffected > 0) {
+          // Supprimer l'image si elle existe
+          if (_imagePath != null) {
+            await _imageService.deleteImage(_imagePath);
+          }
+
           widget.refresh();
           Navigator.pop(context);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Contact supprimé avec succès'),
               backgroundColor: Colors.green,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Erreur lors de la suppression'),
-              backgroundColor: Colors.red,
-              behavior: SnackBarBehavior.floating,
             ),
           );
         }
@@ -145,7 +129,6 @@ class _EditContactScreenState extends State<EditContactScreen> {
           SnackBar(
             content: Text('Erreur lors de la suppression: $e'),
             backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
           ),
         );
       } finally {
@@ -154,77 +137,109 @@ class _EditContactScreenState extends State<EditContactScreen> {
     }
   }
 
+  Future<void> _pickImage() async {
+    final imagePath = await _imageService.pickImage();
+    if (imagePath != null) {
+      setState(() => _imagePath = imagePath);
+    }
+  }
+
+  Future<void> _takePhoto() async {
+    final imagePath = await _imageService.takePhoto();
+    if (imagePath != null) {
+      setState(() => _imagePath = imagePath);
+    }
+  }
+
+  void _showImagePickerDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Changer la photo'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(Icons.photo_library),
+              title: Text('Galerie'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickImage();
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.camera_alt),
+              title: Text('Appareil photo'),
+              onTap: () {
+                Navigator.pop(context);
+                _takePhoto();
+              },
+            ),
+            if (_imagePath != null)
+              ListTile(
+                leading: Icon(Icons.delete, color: Colors.red),
+                title: Text('Supprimer la photo', style: TextStyle(color: Colors.red)),
+                onTap: () {
+                  Navigator.pop(context);
+                  setState(() => _imagePath = null);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Color(0xFFF0F8FF),
+      backgroundColor: Color(AppConstants.backgroundColor),
       appBar: AppBar(
         title: Text(
           'Modifier le Contact',
           style: TextStyle(
             fontWeight: FontWeight.w700,
-            color: Color(0xFF003366),
+            color: Color(AppConstants.textColor),
           ),
         ),
         backgroundColor: Colors.white,
-        foregroundColor: Color(0xFF003366),
         elevation: 2,
-        iconTheme: IconThemeData(color: Color(0xFF0066CC)),
+        iconTheme: IconThemeData(color: Color(AppConstants.primaryColor)),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: EdgeInsets.all(24),
           child: Column(
             children: [
-              Container(
-                width: 100,
-                height: 100,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Color(0xFF0066CC), Color(0xFF00A8FF)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(50),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Color(0xFF0066CC).withOpacity(0.3),
-                      blurRadius: 15,
-                      offset: Offset(0, 8),
+              // Photo du contact
+              GestureDetector(
+                onTap: _showImagePickerDialog,
+                child: Stack(
+                  children: [
+                    _imageService.buildContactImage(_imagePath, size: 120),
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: Color(AppConstants.primaryColor),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Icon(
+                          Icons.camera_alt,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
                     ),
                   ],
                 ),
-                child: Center(
-                  child: Text(
-                    widget.contact.nom.isNotEmpty
-                        ? widget.contact.nom[0].toUpperCase()
-                        : '?',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 32,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
               ),
               SizedBox(height: 20),
-              Text(
-                'Modifier les informations',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF003366),
-                ),
-              ),
-              SizedBox(height: 8),
-              Text(
-                widget.contact.nom,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Color(0xFF6699CC),
-                ),
-              ),
-              SizedBox(height: 40),
+
+              // Champs de formulaire
               Container(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),
@@ -240,18 +255,15 @@ class _EditContactScreenState extends State<EditContactScreen> {
                   controller: _nomController,
                   decoration: InputDecoration(
                     labelText: 'Nom complet',
-                    prefixIcon: Icon(Icons.person, color: Color(0xFF0066CC)),
+                    prefixIcon: Icon(Icons.person, color: Color(AppConstants.primaryColor)),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide.none,
                     ),
                     filled: true,
                     fillColor: Colors.white,
-                    hintText: 'Ex: Jean Dupont',
-                    hintStyle: TextStyle(color: Color(0xFF99C2FF)),
                     floatingLabelBehavior: FloatingLabelBehavior.never,
                   ),
-                  style: TextStyle(fontSize: 16, color: Color(0xFF003366)),
                 ),
               ),
               SizedBox(height: 20),
@@ -270,22 +282,21 @@ class _EditContactScreenState extends State<EditContactScreen> {
                   controller: _numeroController,
                   decoration: InputDecoration(
                     labelText: 'Numéro de téléphone',
-                    prefixIcon: Icon(Icons.phone, color: Color(0xFF0066CC)),
+                    prefixIcon: Icon(Icons.phone, color: Color(AppConstants.primaryColor)),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide.none,
                     ),
                     filled: true,
                     fillColor: Colors.white,
-                    hintText: 'Ex: 06 12 34 56 78',
-                    hintStyle: TextStyle(color: Color(0xFF99C2FF)),
                     floatingLabelBehavior: FloatingLabelBehavior.never,
                   ),
                   keyboardType: TextInputType.phone,
-                  style: TextStyle(fontSize: 16, color: Color(0xFF003366)),
                 ),
               ),
               SizedBox(height: 40),
+
+              // Boutons d'action
               Column(
                 children: [
                   Container(
@@ -316,28 +327,24 @@ class _EditContactScreenState extends State<EditContactScreen> {
                         ),
                       ),
                       child: _isLoading
-                          ? SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation(Colors.white),
-                        ),
-                      )
+                          ? CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation(Colors.white),
+                            )
                           : Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.save, size: 20),
-                          SizedBox(width: 8),
-                          Text(
-                            'Enregistrer les modifications',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.save, size: 20),
+                                SizedBox(width: 8),
+                                Text(
+                                  'Enregistrer',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                        ],
-                      ),
                     ),
                   ),
                   SizedBox(height: 16),
@@ -375,30 +382,6 @@ class _EditContactScreenState extends State<EditContactScreen> {
                     ),
                   ),
                 ],
-              ),
-              SizedBox(height: 30),
-              Container(
-                padding: EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Color(0xFFE6F2FF),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Color(0xFFCCE5FF)),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline, color: Color(0xFF0066CC), size: 20),
-                    SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Les modifications seront appliquées immédiatement après sauvegarde.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Color(0xFF0066CC),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
               ),
             ],
           ),

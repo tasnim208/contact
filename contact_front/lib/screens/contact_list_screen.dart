@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import '../services/contact_service.dart';
 import '../models/contact.dart';
 import '../widgets/contact_card.dart';
+import '../widgets/voice_search_button.dart';
 import 'add_contact_screen.dart';
 import 'edit_contact_screen.dart';
+import 'duplicate_contacts_screen.dart';
+import '../utils/constants.dart';
 
 class ContactListScreen extends StatefulWidget {
   @override
@@ -14,29 +17,28 @@ class _ContactListScreenState extends State<ContactListScreen> {
   final ContactService _contactService = ContactService();
   final TextEditingController _searchController = TextEditingController();
 
-  List<Map<String, dynamic>> contacts = [];
-  List<Map<String, dynamic>> filteredContacts = [];
+  List<Contact> contacts = [];
+  List<Contact> filteredContacts = [];
   bool _isSearching = false;
   bool _isLoading = true;
 
-  void fetchContacts() async {
-    print('🔄 Chargement des contacts...');
-    setState(() => _isLoading = true);
+  @override
+  void initState() {
+    super.initState();
+    _loadContacts();
+    _searchController.addListener(_onSearchChanged);
+  }
 
+  Future<void> _loadContacts() async {
+    setState(() => _isLoading = true);
     try {
       contacts = await _contactService.getContacts();
       filteredContacts = List.from(contacts);
-      print('✅ ${contacts.length} contacts chargés avec succès');
     } catch (e) {
-      print('❌ Erreur lors du chargement des contacts: $e');
-      contacts = [];
-      filteredContacts = [];
-
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Erreur lors du chargement: $e'),
           backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
         ),
       );
     } finally {
@@ -44,132 +46,46 @@ class _ContactListScreenState extends State<ContactListScreen> {
     }
   }
 
-  void searchContacts(String query) async {
-    if (query.isEmpty) {
+  void _onSearchChanged() {
+    if (_searchController.text.isEmpty) {
       setState(() {
         filteredContacts = List.from(contacts);
         _isSearching = false;
       });
-      return;
+    } else {
+      _searchContacts(_searchController.text);
     }
+  }
 
+  Future<void> _searchContacts(String query) async {
     setState(() => _isSearching = true);
-
     try {
       final results = await _contactService.searchContacts(query);
       setState(() => filteredContacts = results);
     } catch (e) {
-      print('❌ Erreur lors de la recherche: $e');
       setState(() => filteredContacts = []);
     }
   }
 
-  void clearSearch() {
-    _searchController.clear();
-    setState(() {
-      filteredContacts = List.from(contacts);
-      _isSearching = false;
-    });
+  void _onVoiceTextRecognized(String text) {
+    _searchController.text = text;
   }
 
-  void deleteContact(int id) async {
-    print('🗑️ Suppression contact ID: $id');
-
-    try {
-      // VÉRIFIER D'ABORD SI LE CONTACT EXISTE
-      final currentContacts = await _contactService.getContacts();
-      final contactExists = currentContacts.any((contact) => contact['id'] == id);
-
-      if (!contactExists) {
-        print('❌ Contact ID $id non trouvé dans la base');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Contact non trouvé'),
-            backgroundColor: Colors.orange,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-        return;
-      }
-
-      // DEMANDE DE CONFIRMATION
-      final confirm = await showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Row(
-            children: [
-              Icon(Icons.warning, color: Colors.orange),
-              SizedBox(width: 8),
-              Text('Confirmer la suppression'),
-            ],
-          ),
-          content: Text('Êtes-vous sûr de vouloir supprimer ce contact ?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: Text('Annuler'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              child: Text('Supprimer'),
-            ),
-          ],
-        ),
-      );
-
-      if (confirm != true) {
-        print('❌ Suppression annulée par l\'utilisateur');
-        return;
-      }
-
-      // SUPPRESSION RÉELLE
-      final rowsAffected = await _contactService.deleteContact(id);
-
-      if (rowsAffected > 0) {
-        print('✅ Suppression réussie, lignes affectées: $rowsAffected');
-
-        // Mise à jour de l'interface
-        setState(() {
-          contacts.removeWhere((contact) => contact['id'] == id);
-          filteredContacts = List.from(contacts);
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Contact supprimé avec succès'),
-            backgroundColor: Colors.green,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      } else {
-        print('⚠️ Aucune ligne affectée - contact peut-être déjà supprimé');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Le contact n\'a pas été trouvé'),
-            backgroundColor: Colors.orange,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    } catch (e) {
-      print('❌ Erreur lors de la suppression: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur lors de la suppression: $e'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
+  void _onVoiceError(String error) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(error),
+        backgroundColor: Colors.red,
+      ),
+    );
   }
 
-  void _logout() async {
+  Future<void> _deleteContact(int id) async {
     final confirm = await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Déconnexion'),
-        content: Text('Êtes-vous sûr de vouloir vous déconnecter ?'),
+        title: Text('Confirmer la suppression'),
+        content: Text('Êtes-vous sûr de vouloir supprimer ce contact ?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -177,7 +93,48 @@ class _ContactListScreenState extends State<ContactListScreen> {
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Color(0xFF0066CC)),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await _contactService.deleteContact(id);
+        await _loadContacts(); // Recharger la liste
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Contact supprimé avec succès'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors de la suppression: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _logout() async {
+    final confirm = await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Déconnexion'),
+        content: Text(AppConstants.logoutConfirmation),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Color(AppConstants.primaryColor)),
             child: Text('Déconnexion'),
           ),
         ],
@@ -190,183 +147,141 @@ class _ContactListScreenState extends State<ContactListScreen> {
     }
   }
 
-  @override
-  void initState() {
-    super.initState();
-    print('🚀 Initialisation de ContactListScreen');
-    fetchContacts();
-    _searchController.addListener(() {
-      if (_searchController.text.isNotEmpty) {
-        searchContacts(_searchController.text);
-      } else {
-        setState(() {
-          filteredContacts = List.from(contacts);
-          _isSearching = false;
-        });
-      }
-    });
-  }
+  Future<void> _showDuplicateContacts() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => DuplicateContactsScreen()),
+    );
 
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
+    if (result == true) {
+      await _loadContacts(); // Rafraîchir si des doublons ont été fusionnés
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Color(0xFFF0F8FF),
+      backgroundColor: Color(AppConstants.backgroundColor),
       appBar: AppBar(
         title: _isSearching
             ? TextField(
           controller: _searchController,
           autofocus: true,
           decoration: InputDecoration(
-            hintText: 'Rechercher un contact...',
+            hintText: AppConstants.searchHint,
             border: InputBorder.none,
             hintStyle: TextStyle(color: Color(0xFF99C2FF)),
           ),
-          style: TextStyle(color: Color(0xFF003366)),
+          style: TextStyle(color: Color(AppConstants.textColor)),
         )
             : Text(
           'Mes Contacts',
           style: TextStyle(
             fontWeight: FontWeight.w700,
-            color: Color(0xFF003366),
+            color: Color(AppConstants.textColor),
           ),
         ),
         backgroundColor: Colors.white,
         elevation: 2,
         actions: [
-          if (_isSearching)
+          if (_isSearching) ...[
+            VoiceSearchButton(
+              onTextRecognized: _onVoiceTextRecognized,
+              onError: _onVoiceError,
+            ),
+            SizedBox(width: 8),
             IconButton(
-              icon: Icon(Icons.clear, color: Color(0xFF0066CC)),
-              onPressed: clearSearch,
-            )
-          else
-            IconButton(
-              icon: Icon(Icons.search, color: Color(0xFF0066CC)),
+              icon: Icon(Icons.clear, color: Color(AppConstants.primaryColor)),
               onPressed: () {
-                setState(() => _isSearching = true);
+                _searchController.clear();
+                setState(() => _isSearching = false);
               },
             ),
-          PopupMenuButton<String>(
-            icon: Icon(Icons.more_vert, color: Color(0xFF0066CC)),
-            onSelected: (value) {
-              if (value == 'logout') {
-                _logout();
-              }
-            },
-            itemBuilder: (BuildContext context) {
-              return {'Déconnexion': 'logout'}.entries.map((entry) {
-                return PopupMenuItem<String>(
-                  value: entry.value,
-                  child: Text(entry.key),
-                );
-              }).toList();
-            },
-          ),
+          ] else ...[
+            IconButton(
+              icon: Icon(Icons.merge, color: Color(AppConstants.primaryColor)),
+              onPressed: _showDuplicateContacts,
+              tooltip: 'Vérifier les doublons',
+            ),
+            IconButton(
+              icon: Icon(Icons.search, color: Color(AppConstants.primaryColor)),
+              onPressed: () => setState(() => _isSearching = true),
+            ),
+            PopupMenuButton<String>(
+              icon: Icon(Icons.more_vert, color: Color(AppConstants.primaryColor)),
+              onSelected: (value) {
+                if (value == 'logout') _logout();
+              },
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: 'logout',
+                  child: Text('Déconnexion'),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
       body: _isLoading
-          ? Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            SizedBox(
-              width: 40,
-              height: 40,
-              child: CircularProgressIndicator(
-                strokeWidth: 3,
-                valueColor: AlwaysStoppedAnimation(Color(0xFF0066CC)),
-              ),
-            ),
-            SizedBox(height: 16),
-            Text(
-              'Chargement des contacts...',
-              style: TextStyle(color: Color(0xFF6699CC)),
-            ),
-          ],
-        ),
-      )
+          ? Center(child: CircularProgressIndicator())
           : Column(
         children: [
+          // Statistiques
           Container(
             padding: EdgeInsets.all(20),
             decoration: BoxDecoration(
               color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.blue.withOpacity(0.1),
-                  blurRadius: 10,
-                  offset: Offset(0, 2),
-                ),
-              ],
+              boxShadow: [BoxShadow(color: Colors.blue.withOpacity(0.1), blurRadius: 10)],
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildStatItem('Total', contacts.length.toString(), Icons.contacts),
-                _buildStatItem('Trouvés', filteredContacts.length.toString(), Icons.search),
+                _buildStatItem('Total', contacts.length, Icons.contacts),
+                _buildStatItem('Trouvés', filteredContacts.length, Icons.search),
               ],
             ),
           ),
           SizedBox(height: 8),
+
+          // Indicateur de recherche vocale
           if (_isSearching && _searchController.text.isNotEmpty)
             Container(
               padding: EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Color(0xFFE6F2FF),
-                border: Border(
-                  bottom: BorderSide(color: Color(0xFFCCE5FF)),
-                ),
-              ),
+              color: Color(0xFFE6F2FF),
               child: Row(
                 children: [
-                  Icon(Icons.search, size: 16, color: Color(0xFF0066CC)),
+                  Icon(Icons.search, size: 16, color: Color(AppConstants.primaryColor)),
                   SizedBox(width: 8),
                   Text(
-                    '${filteredContacts.length} contact(s) trouvé(s) pour "${_searchController.text}"',
-                    style: TextStyle(color: Color(0xFF0066CC), fontSize: 12),
+                    '${filteredContacts.length} contact(s) trouvé(s)',
+                    style: TextStyle(color: Color(AppConstants.primaryColor)),
                   ),
                 ],
               ),
             ),
+
+          // Liste des contacts
           Expanded(
             child: filteredContacts.isEmpty
                 ? _buildEmptyState()
                 : RefreshIndicator(
-              onRefresh: () async => fetchContacts(),
-              backgroundColor: Colors.white,
-              color: Color(0xFF0066CC),
+              onRefresh: _loadContacts,
               child: ListView.builder(
-                physics: AlwaysScrollableScrollPhysics(),
                 itemCount: filteredContacts.length,
                 itemBuilder: (context, index) {
                   final contact = filteredContacts[index];
                   return ContactCard(
-                    contact: Contact(
-                      id: contact['id'],
-                      nom: contact['nom'],
-                      numero: contact['numero'],
-                      userId: contact['user_id'],
-                    ),
-                    onTap: () => Navigator.push(
+                    contact: contact,
+                    onEdit: () => Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (context) => EditContactScreen(
-                          contact: Contact(
-                            id: contact['id'],
-                            nom: contact['nom'],
-                            numero: contact['numero'],
-                            userId: contact['user_id'],
-                          ),
-                          refresh: fetchContacts,
+                          contact: contact,
+                          refresh: _loadContacts,
                         ),
                       ),
                     ),
-                    onDelete: () => deleteContact(contact['id']),
+                    onDelete: () => _deleteContact(contact.id!),
                   );
                 },
               ),
@@ -378,18 +293,16 @@ class _ContactListScreenState extends State<ContactListScreen> {
         onPressed: () => Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => AddContactScreen(refresh: fetchContacts),
+            builder: (context) => AddContactScreen(refresh: _loadContacts),
           ),
         ),
-        backgroundColor: Color(0xFF0066CC),
-        foregroundColor: Colors.white,
-        elevation: 4,
-        child: Icon(Icons.add, size: 28),
+        backgroundColor: Color(AppConstants.primaryColor),
+        child: Icon(Icons.add),
       ),
     );
   }
 
-  Widget _buildStatItem(String label, String value, IconData icon) {
+  Widget _buildStatItem(String label, int count, IconData icon) {
     return Column(
       children: [
         Container(
@@ -399,128 +312,46 @@ class _ContactListScreenState extends State<ContactListScreen> {
             color: Color(0xFFE6F2FF),
             borderRadius: BorderRadius.circular(25),
           ),
-          child: Icon(icon, color: Color(0xFF0066CC), size: 24),
+          child: Icon(icon, color: Color(AppConstants.primaryColor)),
         ),
         SizedBox(height: 8),
         Text(
-          value,
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-            color: Color(0xFF003366),
-          ),
+          count.toString(),
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
         ),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: Color(0xFF6699CC),
-          ),
-        ),
+        Text(label, style: TextStyle(fontSize: 12)),
       ],
     );
   }
 
   Widget _buildEmptyState() {
     return Center(
-      child: Padding(
-        padding: EdgeInsets.all(40),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 120,
-              height: 120,
-              decoration: BoxDecoration(
-                color: Color(0xFFE6F2FF),
-                borderRadius: BorderRadius.circular(60),
-                boxShadow: [
-                  BoxShadow(
-                    color: Color(0xFF0066CC).withOpacity(0.1),
-                    blurRadius: 10,
-                    offset: Offset(0, 5),
-                  ),
-                ],
-              ),
-              child: Icon(
-                _isSearching && _searchController.text.isNotEmpty
-                    ? Icons.search_off
-                    : Icons.contacts_outlined,
-                size: 50,
-                color: Color(0xFF0066CC),
-              ),
-            ),
-            SizedBox(height: 24),
-            Text(
-              _isSearching && _searchController.text.isNotEmpty
-                  ? 'Aucun contact trouvé'
-                  : 'Aucun contact',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF003366),
-              ),
-            ),
-            SizedBox(height: 8),
-            Text(
-              _isSearching && _searchController.text.isNotEmpty
-                  ? 'Essayez avec d\'autres termes de recherche'
-                  : 'Commencez par ajouter votre premier contact',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 16,
-                color: Color(0xFF6699CC),
-              ),
-            ),
-            SizedBox(height: 24),
-            if (!_isSearching)
-              Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  gradient: LinearGradient(
-                    colors: [Color(0xFF0066CC), Color(0xFF00A8FF)],
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Color(0xFF0066CC).withOpacity(0.3),
-                      blurRadius: 10,
-                      offset: Offset(0, 5),
-                    ),
-                  ],
-                ),
-                child: ElevatedButton(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => AddContactScreen(refresh: fetchContacts),
-                    ),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.transparent,
-                    shadowColor: Colors.transparent,
-                    padding: EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.add, size: 20),
-                      SizedBox(width: 8),
-                      Text(
-                        'Ajouter un contact',
-                        style: TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-          ],
-        ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            _isSearching ? Icons.search_off : Icons.contacts_outlined,
+            size: 80,
+            color: Color(AppConstants.primaryColor),
+          ),
+          SizedBox(height: 16),
+          Text(
+            _isSearching ? 'Aucun contact trouvé' : AppConstants.noContacts,
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+          ),
+          SizedBox(height: 8),
+          Text(
+            _isSearching ? 'Essayez avec d\'autres termes' : 'Ajoutez votre premier contact',
+            style: TextStyle(color: Color(AppConstants.accentColor)),
+          ),
+        ],
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 }
